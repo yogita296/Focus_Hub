@@ -1,0 +1,408 @@
+import { useState, useEffect } from 'react';
+import { Mail, Calendar, Settings, Search, Menu, Inbox, Star, Send, Archive, Trash2, Bell } from 'lucide-react';
+import { EmailList, type Email } from '@/app/components/email-list';
+import { EmailDetail } from '@/app/components/email-detail';
+import { CalendarView, type CalendarEvent } from '@/app/components/calendar-view';
+import { Notification } from '@/app/components/notification';
+import { detectMeetingInEmail, convertTo24Hour } from '@/app/utils/meeting-detector';
+
+function App() {
+  const [activeView, setActiveView] = useState<'mail' | 'calendar'>('mail');
+  const [emailFilter, setEmailFilter] = useState<'focused' | 'all'>('focused');
+  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [notification, setNotification] = useState<string | null>(null);
+
+  // Mock email data with meeting-related emails
+  const [emails, setEmails] = useState<Email[]>([
+    {
+      id: '1',
+      sender: 'Sarah Johnson - Acme Corp',
+      subject: 'Client Meeting Scheduled - Q1 Strategy Review',
+      preview: 'Hi team, I\'ve scheduled a client meeting for tomorrow at 2:00 PM to discuss the Q1 marketing strategy. The meeting will be held via Zoom...',
+      time: '9:30 AM',
+      read: false,
+      starred: false,
+      important: false,
+      hasAttachment: true,
+    },
+    {
+      id: '2',
+      sender: 'Michael Chen',
+      subject: 'Product Roadmap Discussion',
+      preview: 'Let\'s have a meeting today at 10:00 AM to review the product roadmap. I\'ll send the conference room details shortly...',
+      time: '8:45 AM',
+      read: false,
+      starred: false,
+      important: false,
+      hasAttachment: false,
+    },
+    {
+      id: '3',
+      sender: 'Emma Watson',
+      subject: 'Design System Updates',
+      preview: 'The new design system components are ready for review. Please check the Figma file when you have a moment...',
+      time: 'Yesterday',
+      read: true,
+      starred: true,
+      important: false,
+      hasAttachment: true,
+    },
+    {
+      id: '4',
+      sender: 'LinkedIn',
+      subject: 'Your weekly job matches',
+      preview: 'Based on your profile, we found 15 jobs that match your preferences...',
+      time: 'Yesterday',
+      read: true,
+      starred: false,
+      important: false,
+      hasAttachment: false,
+    },
+    {
+      id: '5',
+      sender: 'David Park - Executive Team',
+      subject: 'Urgent: Board Meeting Scheduled',
+      preview: 'The board meeting has been scheduled for Monday at 9:00 AM. Please prepare your quarterly reports. This is a critical meeting with all stakeholders...',
+      time: '2 days ago',
+      read: false,
+      starred: false,
+      important: false,
+      hasAttachment: true,
+    },
+    {
+      id: '6',
+      sender: 'Alex Rivera',
+      subject: 'Weekly Standup - Team Sync',
+      preview: 'Our weekly standup is scheduled for today at 9:00 AM. Let\'s sync up on everyone\'s progress...',
+      time: '7:30 AM',
+      read: false,
+      starred: false,
+      important: false,
+      hasAttachment: false,
+    },
+    {
+      id: '7',
+      sender: 'GitHub',
+      subject: '[figma-project] New pull request',
+      preview: 'A new pull request has been opened in your repository requiring your review...',
+      time: '2 days ago',
+      read: true,
+      starred: false,
+      important: false,
+      hasAttachment: false,
+    },
+  ]);
+
+  // Mock calendar events
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+
+  // Auto-detect meetings and sync to calendar on component mount
+  useEffect(() => {
+    const processEmails = () => {
+      const newEvents: CalendarEvent[] = [];
+      const updatedEmails = emails.map(email => {
+        const meetingInfo = detectMeetingInEmail(email.subject, email.preview, email.sender);
+        
+        if (meetingInfo.hasMeeting && meetingInfo.date && meetingInfo.startTime) {
+          // Determine color based on meeting type
+          let color = 'bg-blue-100 text-blue-700';
+          if (meetingInfo.meetingType === 'client') {
+            color = 'bg-green-100 text-green-700';
+          } else if (meetingInfo.meetingType === 'review') {
+            color = 'bg-purple-100 text-purple-700';
+          } else if (meetingInfo.meetingType === 'standup') {
+            color = 'bg-orange-100 text-orange-700';
+          }
+
+          // Create calendar event
+          const event: CalendarEvent = {
+            id: `event-${email.id}`,
+            title: email.subject,
+            startTime: convertTo24Hour(meetingInfo.startTime),
+            endTime: meetingInfo.endTime ? convertTo24Hour(meetingInfo.endTime) : convertTo24Hour(meetingInfo.startTime).split(':')[0] + ':00',
+            date: meetingInfo.date,
+            color,
+            type: 'meeting',
+            location: meetingInfo.location,
+          };
+          
+          newEvents.push(event);
+          
+          // Mark email as synced and set importance
+          return {
+            ...email,
+            syncedToCalendar: true,
+            important: meetingInfo.isImportant || false,
+          };
+        }
+        
+        return email;
+      });
+
+      setEmails(updatedEmails);
+      setCalendarEvents(newEvents);
+      
+      // Show notification if meetings were detected
+      if (newEvents.length > 0) {
+        setNotification(`${newEvents.length} meeting${newEvents.length > 1 ? 's' : ''} automatically synced to your calendar`);
+      }
+    };
+
+    processEmails();
+  }, []); // Only run once on mount
+
+  const focusedEmails = emails.filter(email => email.important || !email.read || email.syncedToCalendar);
+  const displayedEmails = emailFilter === 'focused' ? focusedEmails : emails;
+
+  const handleEmailClick = (email: Email) => {
+    setSelectedEmail(email);
+    setEmails(emails.map(e => 
+      e.id === email.id ? { ...e, read: true } : e
+    ));
+  };
+
+  const handleStarToggle = (id: string) => {
+    setEmails(emails.map(e => 
+      e.id === id ? { ...e, starred: !e.starred } : e
+    ));
+    if (selectedEmail?.id === id) {
+      setSelectedEmail({ ...selectedEmail, starred: !selectedEmail.starred });
+    }
+  };
+
+  const handleArchive = (id: string) => {
+    setEmails(emails.filter(e => e.id !== id));
+    if (selectedEmail?.id === id) {
+      setSelectedEmail(null);
+    }
+  };
+
+  const handleDelete = (id: string) => {
+    setEmails(emails.filter(e => e.id !== id));
+    // Also remove associated calendar event
+    setCalendarEvents(calendarEvents.filter(e => e.id !== `event-${id}`));
+    if (selectedEmail?.id === id) {
+      setSelectedEmail(null);
+    }
+  };
+
+  const handleAddToCalendar = (email: Email) => {
+    const meetingInfo = detectMeetingInEmail(email.subject, email.preview, email.sender);
+    
+    const newEvent: CalendarEvent = {
+      id: `event-${email.id}`,
+      title: email.subject,
+      startTime: meetingInfo.startTime ? convertTo24Hour(meetingInfo.startTime) : '10:00',
+      endTime: meetingInfo.endTime ? convertTo24Hour(meetingInfo.endTime) : '11:00',
+      date: meetingInfo.date || new Date(),
+      color: 'bg-pink-100 text-pink-700',
+      type: 'meeting',
+      location: meetingInfo.location,
+    };
+    
+    setCalendarEvents([...calendarEvents, newEvent]);
+    setEmails(emails.map(e => 
+      e.id === email.id ? { ...e, syncedToCalendar: true } : e
+    ));
+    
+    if (selectedEmail?.id === email.id) {
+      setSelectedEmail({ ...selectedEmail, syncedToCalendar: true });
+    }
+    
+    setActiveView('calendar');
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-50">
+      {/* Notification */}
+      {notification && (
+        <Notification
+          message={notification}
+          onClose={() => setNotification(null)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div className={`${sidebarOpen ? 'w-64' : 'w-0'} bg-white border-r border-gray-200 flex flex-col transition-all duration-300 overflow-hidden`}>
+        <div className="p-4 border-b border-gray-200">
+          <h1 className="text-xl font-bold text-gray-800">Focus Hub</h1>
+          <p className="text-xs text-gray-500 mt-1">Smart mail & calendar</p>
+        </div>
+
+        <nav className="flex-1 p-3">
+          <button
+            onClick={() => setActiveView('mail')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg mb-2 transition-colors ${
+              activeView === 'mail'
+                ? 'bg-blue-50 text-blue-600'
+                : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Mail className="w-5 h-5" />
+            <span className="font-medium">Mail</span>
+            {focusedEmails.length > 0 && (
+              <span className="ml-auto bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
+                {focusedEmails.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveView('calendar')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+              activeView === 'calendar'
+                ? 'bg-blue-50 text-blue-600'
+                : 'text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Calendar className="w-5 h-5" />
+            <span className="font-medium">Calendar</span>
+            {calendarEvents.length > 0 && (
+              <span className="ml-auto bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
+                {calendarEvents.length}
+              </span>
+            )}
+          </button>
+
+          {activeView === 'mail' && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2 px-4">
+                Folders
+              </h3>
+              <button className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-50 text-sm">
+                <Inbox className="w-4 h-4" />
+                <span>Inbox</span>
+              </button>
+              <button className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-50 text-sm">
+                <Star className="w-4 h-4" />
+                <span>Starred</span>
+              </button>
+              <button className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-50 text-sm">
+                <Send className="w-4 h-4" />
+                <span>Sent</span>
+              </button>
+              <button className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-50 text-sm">
+                <Archive className="w-4 h-4" />
+                <span>Archive</span>
+              </button>
+            </div>
+          )}
+        </nav>
+
+        <div className="p-3 border-t border-gray-200">
+          <button className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-50">
+            <Settings className="w-5 h-5" />
+            <span>Settings</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            <div className="flex-1 max-w-2xl relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder={activeView === 'mail' ? 'Search mail...' : 'Search events...'}
+                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {calendarEvents.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg text-sm">
+                <Bell className="w-4 h-4" />
+                <span>{calendarEvents.length} events synced</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Mail View */}
+        {activeView === 'mail' && (
+          <div className="flex-1 flex overflow-hidden">
+            {/* Email List */}
+            <div className="w-96 border-r border-gray-200 flex flex-col bg-white">
+              <div className="p-4 border-b border-gray-200">
+                <div className="flex gap-2 bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setEmailFilter('focused')}
+                    className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      emailFilter === 'focused'
+                        ? 'bg-white shadow text-blue-600'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Focused
+                    {focusedEmails.length > 0 && (
+                      <span className="ml-2 text-xs">({focusedEmails.length})</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setEmailFilter('all')}
+                    className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      emailFilter === 'all'
+                        ? 'bg-white shadow text-blue-600'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    All
+                    <span className="ml-2 text-xs">({emails.length})</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {displayedEmails.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                    <Mail className="w-12 h-12 mb-2" />
+                    <p className="text-sm">No emails to show</p>
+                  </div>
+                ) : (
+                  <EmailList
+                    emails={displayedEmails}
+                    onEmailClick={handleEmailClick}
+                    onStarToggle={handleStarToggle}
+                    onArchive={handleArchive}
+                    onDelete={handleDelete}
+                    selectedEmailId={selectedEmail?.id}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Email Detail */}
+            <div className="flex-1 overflow-hidden">
+              <EmailDetail
+                email={selectedEmail}
+                onStarToggle={handleStarToggle}
+                onArchive={handleArchive}
+                onDelete={handleDelete}
+                onAddToCalendar={handleAddToCalendar}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Calendar View */}
+        {activeView === 'calendar' && (
+          <div className="flex-1 overflow-hidden">
+            <CalendarView events={calendarEvents} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default App;
